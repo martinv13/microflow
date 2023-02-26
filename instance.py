@@ -30,7 +30,11 @@ class TaskQueue:
         self._deque.appendleft(task)
 
     def get_next_task(self):
-        top = self.deque
+        top = self._deque.pop()
+        locked_tasks = None
+
+        if top.semaphore is None or not top.semaphore.locked():
+
 
 
 class Instance(Singleton):
