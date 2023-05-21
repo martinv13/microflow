@@ -3,15 +3,13 @@ import os
 import functools
 from multiprocessing import cpu_count
 
-from microflow.app import make_sanic_app
-from microflow.runnable import ExecutionStatus, RunStrategy, Task, Manager
-from microflow.control import run_parallel, run_with_dependencies_async, map_parallel
+from microflow.runnable import RunStrategy, Task, Manager
 from microflow.run_queue import RunQueue, ConcurrencyGroup
 from microflow.event_store import EventStore
-from microflow.runner import InProcessRunner, MultiprocessingRunner
+from microflow.runner import ThreadingRunner, MultiprocessingRunner
 
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.basename(__file__), "../../"))
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.basename(__file__), "../../../"))
 
 
 class Schedule:
@@ -27,11 +25,13 @@ class Flow:
         self.tasks = {}
         self.sanic_app = None
 
-        self._global_tasks_concurrency = ConcurrencyGroup(cpu_count(), name="GLOBAL_TASKS_CONCURRENCY")
+        self._global_tasks_concurrency = ConcurrencyGroup(
+            cpu_count(), name="GLOBAL_TASKS_CONCURRENCY"
+        )
         self._queue = RunQueue()
         self._event_store = EventStore()
-        self._tasks_runner = MultiprocessingRunner(self)
-        self._managers_runner = InProcessRunner(self)
+        self._tasks_runner = MultiprocessingRunner()
+        self._managers_runner = ThreadingRunner()
 
     def _runnable_decorator(
         self,
@@ -58,10 +58,12 @@ class Flow:
             )
         async_fun = func if async_mode else None
         fun = None if async_mode else func
-        dest_dict = self.tasks if runnable_type == "task" else self.managers
-        runnable = (
-            Task(
-                instance=self,
+        dest_dict = self.tasks if runnable_type == "TASK" else self.managers
+        if runnable_type == "TASK":
+            runnable = Task(
+                event_store=self._event_store,
+                run_queue=self._queue,
+                runner=self._tasks_runner,
                 fun=fun,
                 async_fun=async_fun,
                 name=name,
@@ -70,9 +72,12 @@ class Flow:
                 schedule=schedule,
                 run_strategy=run_strategy,
             )
-            if runnable_type == "task"
-            else Manager(
-                instance=self,
+            runnable.concurrency_groups.append(self._global_tasks_concurrency)
+        else:
+            runnable = Manager(
+                event_store=self._event_store,
+                run_queue=self._queue,
+                runner=self._tasks_runner,
                 fun=func,
                 async_fun=async_fun,
                 name=name,
@@ -80,7 +85,6 @@ class Flow:
                 schedule=schedule,
                 run_strategy=run_strategy,
             )
-        )
         if runnable.name in dest_dict:
             raise RuntimeError(f"{runnable_type} {runnable.name} is already defined")
         return runnable
@@ -102,7 +106,7 @@ class Flow:
             max_concurrency=max_concurrency,
             schedule=schedule,
             run_strategy=run_strategy,
-            runnable_type="task",
+            runnable_type="TASK",
             async_mode=False,
         )
 
@@ -123,7 +127,7 @@ class Flow:
             max_concurrency=max_concurrency,
             schedule=schedule,
             run_strategy=run_strategy,
-            runnable_type="task",
+            runnable_type="TASK",
             async_mode=True,
         )
 
@@ -142,7 +146,7 @@ class Flow:
             inputs=inputs,
             schedule=schedule,
             run_strategy=run_strategy,
-            runnable_type="manager",
+            runnable_type="MANAGER",
             async_mode=False,
         )
 
@@ -161,32 +165,6 @@ class Flow:
             inputs=inputs,
             schedule=schedule,
             run_strategy=run_strategy,
-            runnable_type="manager",
+            runnable_type="MANAGER",
             async_mode=True,
         )
-
-    async def run_task(self, task_obj, args):
-        exec = ExecutionStatus(task_obj, ExecutionStatus.QUEUED, inputs=args)
-        self._event_logger.log(exec)
-        async with self.tasks_queue.wait_in_queue(task_obj):
-            exec.status = ExecutionStatus.STARTED
-            self._event_logger.log(exec)
-            exec = await self._runner.run(exec)
-            self._event_logger.log(exec)
-        return exec
-
-    def run_parallel(self, *args):
-        pass
-
-    def run_managers(self, steps):
-        fut = asyncio.run_coroutine_threadsafe(
-            run_with_dependencies_async(steps),
-            self.loop,
-        )
-        return fut.result()
-
-    def run_server(self, port=3000, host="localhost"):
-        if self.sanic_app is None:
-            self.sanic_app = make_sanic_app(self)
-
-        self.sanic_app.run(host=host, port=port)

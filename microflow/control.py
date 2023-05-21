@@ -31,7 +31,7 @@ async def run_with_dependencies_async(steps):
 
 
 def run_parallel(*args, loop=None):
-    """ Run Tasks or managers in parallel from a sync function
+    """Run Tasks or managers in parallel from a sync function
 
     :param args: either tasks or managers or
     :param loop:

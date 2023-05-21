@@ -1,6 +1,10 @@
+import uuid
+
+
+DEFAULT = object()
+
 
 class ExecutionStatus:
-
     QUEUED = 0
     STARTED = 1
     SUCCESS = 2
@@ -21,9 +25,18 @@ class ExecutionStatus:
             raise ValueError("invalid status value")
         return status
 
-    def __init__(self, runnable, run_group, status, exec_id=None, reason=None, inputs=None, output=None):
+    def __init__(
+        self,
+        runnable,
+        run_group,
+        status,
+        exec_id=None,
+        reason=None,
+        inputs=None,
+        output=None,
+    ):
         self.exec_id = uuid.uuid4() if exec_id is None else exec_id
-        self.exec_id = run_group
+        self.run_group = run_group
         self.runnable = runnable
         self.status = ExecutionStatus.check_valid_status(status)
         self.reason = reason
@@ -56,25 +69,27 @@ class ExecutionStatus:
         return self.output.__iter__()
 
     def __setattr__(self, key, value):
-        raise RuntimeError("ExecutionStatus cannot be modified directly; use get_new_status() to create a new object")
+        raise RuntimeError(
+            "ExecutionStatus cannot be modified directly; use get_new_status() to create a new object"
+        )
 
     def get_new_status(self, status=DEFAULT, reason=DEFAULT, output=DEFAULT):
-        tk = exec_id.set(self.exec_id)
         new_status = ExecutionStatus(
             runnable=self.runnable,
-            status=self.status if status is DEFAULT else self.check_valid_status(status),
+            status=self.status
+            if status is DEFAULT
+            else self.check_valid_status(status),
+            run_group=self.run_group,
+            exec_id=self.exec_id,
             reason=self.reason if reason is DEFAULT else reason,
             inputs=self.inputs,
             output=self.output if output is DEFAULT else output,
         )
-        exec_id.reset(tk)
         return new_status
 
 
 class ExecutionResult:
-
     def __init__(self, status=ExecutionStatus.SUCCESS, reason=None, value=None):
-
         if value is None and status is ExecutionStatus.SUCCESS:
             raise ValueError("execution result cannot be None for a SUCCESS status")
 
