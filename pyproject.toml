@@ -25,3 +25,6 @@ dependencies = [
 [project.urls]
 "Homepage" = "https://martinv13.github.com/microflow"
 "Bug Tracker" = "https://github.com/martinv13/microflow/issues"
+
+[project.scripts]
+"microflow" = "microflow.cli:main"
