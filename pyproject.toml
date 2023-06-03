@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "microflow"
+version = "0.0.1"
+authors = [
+  { name="martinv13", email="martinvergier@gmail.com" },
+]
+description = "A tiny orchestration framework"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "multiprocess",
+    "fastapi==0.95.2",
+    "uvicorn",
+]
+
+[project.urls]
+"Homepage" = "https://martinv13.github.com/microflow"
+"Bug Tracker" = "https://github.com/martinv13/microflow/issues"

@@ -86,7 +86,7 @@ class RunQueue:
 
     def wake_up_first(self):
         """Release the next waiter in line to start its execution, if any"""
-        if len(self.waiters) > 0:
+        if self.waiters is not None and len(self.waiters) > 0:
             top_concurrency_groups, top_fut = self.waiters.pop()
             if acquire_all(top_concurrency_groups):
                 top_fut.set_result(True)

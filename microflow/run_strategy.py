@@ -15,5 +15,5 @@ class RunStrategy:
             raise ValueError("unknown run_strategy")
         self.run_strategy = run_strategy
 
-    def should_run(self, args):
+    def should_run(self, *args):
         return True

@@ -1,16 +1,17 @@
 import uuid
-
+from datetime import datetime
 
 DEFAULT = object()
 
 
-class ExecutionStatus:
-    QUEUED = 0
-    STARTED = 1
-    SUCCESS = 2
-    SKIPPED = 3
-    ERROR = 4
-    CANCELLED = 5
+class BaseExecutionStatus(dict):
+
+    QUEUED = "QUEUED"
+    STARTED = "STARTED"
+    SUCCESS = "SUCCESS"
+    SKIPPED = "SKIPPED"
+    ERROR = "ERROR"
+    CANCELLED = "CANCELLED"
 
     @classmethod
     def check_valid_status(cls, status):
@@ -25,6 +26,8 @@ class ExecutionStatus:
             raise ValueError("invalid status value")
         return status
 
+
+class ExecutionStatus(BaseExecutionStatus):
     def __init__(
         self,
         runnable,
@@ -35,6 +38,8 @@ class ExecutionStatus:
         inputs=None,
         output=None,
     ):
+        super().__init__()
+        self.timestamp = datetime.now()
         self.exec_id = uuid.uuid4() if exec_id is None else exec_id
         self.run_group = run_group
         self.runnable = runnable
@@ -68,10 +73,8 @@ class ExecutionStatus:
     def __iter__(self):
         return self.output.__iter__()
 
-    def __setattr__(self, key, value):
-        raise RuntimeError(
-            "ExecutionStatus cannot be modified directly; use get_new_status() to create a new object"
-        )
+    def __repr__(self):
+        return f"{self.timestamp}: {self.runnable.name} - {self.status} (group: {str(self.run_group)[-8:]})"
 
     def get_new_status(self, status=DEFAULT, reason=DEFAULT, output=DEFAULT):
         new_status = ExecutionStatus(
@@ -88,8 +91,9 @@ class ExecutionStatus:
         return new_status
 
 
-class ExecutionResult:
+class ExecutionResult(BaseExecutionStatus):
     def __init__(self, status=ExecutionStatus.SUCCESS, reason=None, value=None):
+        super().__init__()
         if value is None and status is ExecutionStatus.SUCCESS:
             raise ValueError("execution result cannot be None for a SUCCESS status")
 
