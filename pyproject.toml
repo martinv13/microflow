@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "microflow"
@@ -19,9 +19,14 @@ classifiers = [
 dependencies = [
     "multiprocess",
     "fastapi==0.95.2",
-    "uvicorn",
 ]
+
+[project.optional-dependencies]
+tests = ["pytest", "pytest-asyncio"]
 
 [project.urls]
 "Homepage" = "https://martinv13.github.com/microflow"
 "Bug Tracker" = "https://github.com/martinv13/microflow/issues"
+
+[project.scripts]
+"microflow" = "microflow.cli:main"
