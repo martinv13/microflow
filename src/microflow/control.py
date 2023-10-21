@@ -56,7 +56,7 @@ def run_parallel(*args, loop=None):
     return fut.result()
 
 
-def map_parallel(func, arg, loop=None):
+def map_parallel(func, args, loop=None):
     if loop is None:
         loop = asyncio.get_running_loop()
     coros = []
