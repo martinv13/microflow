@@ -2,4 +2,4 @@ venv
 chunks
 .idea
 __pycache__
-microflow/ui-build
+src/gui-build
