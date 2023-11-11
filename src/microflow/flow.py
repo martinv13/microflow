@@ -83,7 +83,7 @@ class Flow:
         :param max_concurrency:
         :param schedule:
         :param run_strategy:
-        :return:
+        :return: the Task object
         """
         if decorated_func is None:
             return functools.partial(
@@ -114,14 +114,26 @@ class Flow:
         *,
         name=None,
         inputs=None,
+        max_concurrency=None,
         schedule=None,
         run_strategy=RunStrategy.ANY_SUCCESS_NO_ERROR,
     ):
+        """Decorate a function to create and register a new manager within the `Flow`
+
+        :param decorated_func: The function to be added as a task
+        :param name: A name for the task (defaults to the function's name)
+        :param inputs: An optional list of inputs for the task (names of other tasks or managers)
+        :param max_concurrency:
+        :param schedule:
+        :param run_strategy:
+        :return: the Task object
+        """
         if decorated_func is None:
             return functools.partial(
                 self.manager,
                 name=name,
                 inputs=inputs,
+                max_concurrency=max_concurrency,
                 schedule=schedule,
                 run_strategy=run_strategy,
             )
@@ -131,6 +143,7 @@ class Flow:
             fun=decorated_func,
             name=name,
             inputs=inputs,
+            max_concurrency=max_concurrency,
             schedule=schedule,
             run_strategy=run_strategy,
         )
@@ -141,8 +154,7 @@ class Flow:
         if self._init:
             return
 
-        # TODO: check DAGs
-        # raise RuntimeError("config error")
+        self.runnables.init()
 
         _loop = self.loop_store.get_loop(start=True)
 
@@ -227,6 +239,12 @@ class Flow:
             task.add_done_callback(self._background_tasks.discard)
 
         return run_id
+
+    async def cancel_run_group(self, run_group: str):
+        pass
+
+    async def terminate_run(self, run_id: str):
+        pass
 
     def serve(self, host="localhost", port=3000):
         if self.flow_server is None:

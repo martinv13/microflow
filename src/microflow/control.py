@@ -1,8 +1,8 @@
 import asyncio
 
 
-async def run_with_dependencies_async(steps):
-    """Run a set of Managers or Tasks in DAG order, running their dependencies first
+async def run_dag_async(steps):
+    """Run a set of Managers or Runnables in DAG order, running their dependencies first
 
     :param steps: a list of Managers or Tasks
     :return: the return values of the Managers or Tasks

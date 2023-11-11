@@ -1,3 +1,4 @@
+import asyncio
 import typing
 from typing import Callable, Union
 import uuid
@@ -11,10 +12,11 @@ from microflow.exec_result import (
     ExecutionResult,
 )
 from microflow.runner import BaseRunner
-from microflow.utils import run_group_ctx, caller_type_ctx
+from microflow.utils import run_id_ctx, run_group_ctx, caller_type_ctx
 
 if typing.TYPE_CHECKING:
     from microflow.flow import Flow, Schedule
+
 
 
 class Runnable:
@@ -30,7 +32,7 @@ class Runnable:
         schedule: Union[None, str, "Schedule"] = None,
         max_concurrency: Union[None, int, "ConcurrencyGroup"] = None,
         max_concurrency_by_key: Union[None, str] = None,
-        run_strategy: Union[None, str] =RunStrategy.ANY_SUCCESS_NO_ERROR,
+        run_strategy: Union[None, str] = RunStrategy.ANY_SUCCESS_NO_ERROR,
     ):
         self.flow = flow
         self.runner = runner
@@ -73,6 +75,10 @@ class Runnable:
         if run_id is None:
             run_id = str(uuid.uuid4())
 
+        run_id_ctx
+
+        run_id_ctx_token = run_id_ctx.set(run_id)
+
         # in case the runnable is called directly, set run_group context
         run_group = run_group_ctx.get()
         run_group_token = None
@@ -80,48 +86,40 @@ class Runnable:
             run_group = str(uuid.uuid4())
             run_group_token = run_group_ctx.set(run_group)
 
-        run_args = {
-            "run_id": run_id,
-            "run_group": run_group,
-            "runnable_name": self.name,
-        }
+        run = Run(
+            self.name,
+            run_id,
+            run_group,
+            args,
+            self.flow.event_store,
+        )
 
-        if len(args) > 0 and isinstance(args[0], dict):
-            run_args["time_partition"] = (
-                args[0]["time_partition"] if "time_partition" in args[0] else None
+        if run.run_key is not None:
+            cached_output = await self.flow.event_store.get_runs(
+                runnable_name=self.name,
+                status=ExecutionStatus.SUCCESS,
+                run_key=run.run_key,
+                limit=1,
             )
-            run_args["cat_partition"] = (
-                args[0]["cat_partition"] if "cat_partition" in args[0] else None
-            )
-
-            # check if a successful run already exists for the given run_key
-            if "run_key" in args[0]:
-                run_args["run_key"] = args[0]["run_key"]
-                cached_output = await self.flow.event_store.get_runs(
-                    runnable_name=self.name,
-                    status=ExecutionStatus.SUCCESS,
-                    run_key=args[0]["run_key"],
-                    limit=1,
+            if len(cached_output) > 0:
+                res = ExecutionResult(
+                    status=ExecutionStatus.SKIPPED,
+                    value=None,
+                    run_key=run_args["run_key"],
+                    time_partition=run_args["time_partition"],
+                    cat_partition=run_args["cat_partition"],
                 )
-                if len(cached_output) > 0:
-                    res = ExecutionResult(
-                        status=ExecutionStatus.SKIPPED,
-                        value=None,
-                        run_key=run_args["run_key"],
-                        time_partition=run_args["time_partition"],
-                        cat_partition=run_args["cat_partition"],
-                    )
-                    res.runnable_name = self.name
-                    res.run_id = run_id
-                    res.run_group = run_group
-                    res.output = cached_output[0].output
-                    self.flow.event_store.log_event(
-                        **run_args,
-                        output=res.output,
-                        status=ExecutionStatus.SKIPPED,
-                        inputs=args,
-                    )
-                    return res
+                res.runnable_name = self.name
+                res.run_id = run_id
+                res.run_group = run_group
+                res.output = cached_output[0].output
+                self.flow.event_store.log_event(
+                    **run_args,
+                    output=res.output,
+                    status=ExecutionStatus.SKIPPED,
+                    inputs=args,
+                )
+                return res
 
         # check the run strategy to skip run if need be
         if not self.run_strategy.should_run(*args):
@@ -132,12 +130,10 @@ class Runnable:
             return res
 
         # else, enqueue the job
-        self.flow.event_store.log_event(
-            **run_args, status=ExecutionStatus.QUEUED, inputs=args
-        )
+        run.queued()
 
         async with self.flow.queue.wait_in_queue(self.concurrency_groups):
-            self.flow.event_store.log_event(**run_args, status=ExecutionStatus.STARTED)
+            run.started()
             try:
                 run_result = await self.runner.run(
                     self.name, run_id=run_id, run_args=args
@@ -146,6 +142,8 @@ class Runnable:
                     res = make_execution_result_from_output(
                         **run_args, value=run_result["result"]
                     )
+            except asyncio.CancelledError:
+                run.cancelled()
             except Exception as e:
                 res = make_execution_result_from_output(**run_args, value=e)
             self.flow.event_store.log_event(
@@ -182,6 +180,32 @@ class RunnableStore(dict):
         if runnable.name in self._runnables:
             raise RuntimeError(f"runnable {runnable.name} is already defined")
         self._runnables[runnable.name] = runnable
+
+    def init(self):
+        # translate inputs to Runnables
+        for runnable in self._runnables.values():
+            inputs = []
+            for input in runnable.inputs:
+                if isinstance(input, str):
+                    inputs.append(self._runnables[input])
+                elif isinstance(input, Runnable):
+                    inputs.append(input)
+                else:
+                    raise ValueError(
+                        "input can be only a Runnable or the name of a Runnable"
+                    )
+            runnable.inputs = inputs
+
+        # check the absence of cycles
+        def has_cycle(node: Runnable, names_path: list[str]):
+            if node.name in names_path:
+                return True
+            if len(node.inputs) == 0:
+                return False
+            return any([has_cycle(input, names_path + [node.name]) for input in inputs])
+
+        if any([has_cycle(runnable, []) for runnable in self._runnables.values()]):
+            raise RuntimeError("cycle detected in Runnable inputs")
 
     def has_tasks(self):
         return any(

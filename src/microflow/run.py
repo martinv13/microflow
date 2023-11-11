@@ -17,6 +17,66 @@ class ExecutionStatus(str, Enum):
     MULTIPLE = "MULTIPLE"  #  useful when ExecutionResult is a list of ExecutionResults
 
 
+class RunModel(BaseModel):
+    """A Pydantic model for runs"""
+    runnable_name: str
+    run_id: str | None = None
+    status: ExecutionStatus | None = None
+    run_group: str | None = None
+    session_id: str | None = None
+    run_key: str | None = None
+    time_partition: datetime | None = None
+    cat_partition: str | None = None
+    created_at: datetime | None = None
+    queued_at: datetime | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    inputs: Union[tuple[dict], None] = None
+    output: Any | None = None
+
+
+class Run:
+    """A run"""
+
+    def __init__(self, runnable_name, run_id, run_group, inputs, event_logger):
+        self._event_logger = event_logger
+        self._sub_runs = set()
+        self.status = None
+        self.output = None
+        self.runnable_name = runnable_name
+        self.run_id = run_id
+        self.run_group = run_group
+        self.inputs = inputs
+        self.run_key = None
+        self.time_partition = None
+        self.cat_partition = None
+        if len(inputs) > 0 and isinstance(inputs[0], dict):
+            for var in ["time_partition", "cat_partition", "run_key"]:
+                if var in inputs[0]:
+                    setattr(self, var, inputs[0][var])
+
+    def queued(self):
+        self.status = ExecutionStatus.QUEUED
+
+    def started(self):
+        self.status = ExecutionStatus.STARTED
+
+    def register_sub_run(self, sub_run: "Run"):
+        self._sub_runs.add(sub_run)
+
+    def cancelled(self):
+        self.status = ExecutionStatus.CANCELLED
+        for run in self._sub_runs:
+            run.cancelled()
+
+    def terminate(self):
+        for run in self._sub_runs:
+            run.terminate()
+
+    def ended(self, output):
+        self.output = output
+
+
 class ExecutionResult:
     """A class to represent the result of a run, which can be returned explicitly by a task or a manager
     decorated function.
@@ -105,21 +165,6 @@ class ExecutionResult:
         return f"{self.timestamp}: {self.runnable_name} - {self.status} (group: {str(self.run_group)[-8:]})"
 
 
-class Run(BaseModel):
-    runnable_name: str
-    run_id: str | None = None
-    status: ExecutionStatus | None = None
-    run_group: str | None = None
-    session_id: str | None = None
-    run_key: str | None = None
-    time_partition: datetime | None = None
-    cat_partition: str | None = None
-    created_at: datetime | None = None
-    queued_at: datetime | None = None
-    started_at: datetime | None = None
-    ended_at: datetime | None = None
-    inputs: Union[tuple[dict], None] = None
-    output: Any | None = None
 
 
 def make_execution_result_from_output(
