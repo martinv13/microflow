@@ -112,7 +112,7 @@ class FlowServer:
             return {"status": "flow reloaded"}
 
         main_app.mount("/api", api_app)
-        gui_folder = pkg_resources.resource_filename(__name__, "ui-build")
+        gui_folder = pkg_resources.resource_filename(__name__, "gui-build")
         main_app.mount("/", StaticFiles(directory=gui_folder, html=True))
 
         return main_app
