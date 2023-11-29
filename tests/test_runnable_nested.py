@@ -49,7 +49,7 @@ def test_nested_task_error(test_flow):
         return nested_task(a)
 
     res = outer_task()
-    print(res)
+    assert res.status == ExecutionStatus.ERROR
 
 
 if __name__ == "__main__":
