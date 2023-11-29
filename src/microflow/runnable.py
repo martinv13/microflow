@@ -6,17 +6,16 @@ import functools
 
 from microflow.run_queue import ConcurrencyGroup
 from microflow.run_strategy import RunStrategy
-from microflow.exec_result import (
+from microflow.run import (
+    Run,
     ExecutionStatus,
-    make_execution_result_from_output,
     ExecutionResult,
 )
 from microflow.runner import BaseRunner
-from microflow.utils import run_id_ctx, run_group_ctx, caller_type_ctx
+from microflow.utils import run_ctx
 
 if typing.TYPE_CHECKING:
     from microflow.flow import Flow, Schedule
-
 
 
 class Runnable:
@@ -75,24 +74,15 @@ class Runnable:
         if run_id is None:
             run_id = str(uuid.uuid4())
 
-        run_id_ctx
-
-        run_id_ctx_token = run_id_ctx.set(run_id)
-
-        # in case the runnable is called directly, set run_group context
-        run_group = run_group_ctx.get()
-        run_group_token = None
-        if run_group is None:
-            run_group = str(uuid.uuid4())
-            run_group_token = run_group_ctx.set(run_group)
-
+        parent_run = run_ctx.get()
         run = Run(
             self.name,
             run_id,
-            run_group,
+            parent_run.run_stack if parent_run else [],
             args,
             self.flow.event_store,
         )
+        parent_run_token = run_ctx.set(run)
 
         if run.run_key is not None:
             cached_output = await self.flow.event_store.get_runs(
@@ -102,71 +92,51 @@ class Runnable:
                 limit=1,
             )
             if len(cached_output) > 0:
-                res = ExecutionResult(
-                    status=ExecutionStatus.SKIPPED,
-                    value=None,
-                    run_key=run_args["run_key"],
-                    time_partition=run_args["time_partition"],
-                    cat_partition=run_args["cat_partition"],
+                run_ctx.reset(parent_run_token)
+                return run.ended(
+                    ExecutionResult(
+                        status=ExecutionStatus.SKIPPED, value=cached_output[0].output
+                    )
                 )
-                res.runnable_name = self.name
-                res.run_id = run_id
-                res.run_group = run_group
-                res.output = cached_output[0].output
-                self.flow.event_store.log_event(
-                    **run_args,
-                    output=res.output,
-                    status=ExecutionStatus.SKIPPED,
-                    inputs=args,
-                )
-                return res
 
         # check the run strategy to skip run if need be
         if not self.run_strategy.should_run(*args):
-            res = make_execution_result_from_output(**run_args, value=None)
-            self.flow.event_store.log_event(
-                **run_args, status=ExecutionStatus.SKIPPED, inputs=args
-            )
-            return res
+            run_ctx.reset(parent_run_token)
+            return run.ended(None)
 
         # else, enqueue the job
         run.queued()
 
-        async with self.flow.queue.wait_in_queue(self.concurrency_groups):
+        res = None
+        async with self.flow.queue.wait_in_queue(run.run_id, self.concurrency_groups):
             run.started()
             try:
                 run_result = await self.runner.run(
                     self.name, run_id=run_id, run_args=args
                 )
                 if run_result["type"] in ["result", "error"]:
-                    res = make_execution_result_from_output(
-                        **run_args, value=run_result["result"]
+                    res = run.ended(run_result["result"])
+                elif run_result["type"] == "terminated":
+                    res = run.ended(
+                        ExecutionResult(
+                            status=ExecutionStatus.TERMINATED,
+                        )
                     )
             except asyncio.CancelledError:
                 run.cancelled()
             except Exception as e:
-                res = make_execution_result_from_output(**run_args, value=e)
-            self.flow.event_store.log_event(
-                **run_args, status=res.status, output=res.output
-            )
-            if run_group_token is not None:
-                run_group_ctx.reset(run_group_token)
-            return res
+                res = run.ended(e)
+
+        run_ctx.reset(parent_run_token)
+        return res
 
 
 class Task(Runnable):
-    async def run_async(self, *args, run_id=None):
-        # cannot call other tasks or managers from a task
-        if caller_type_ctx.get() == "TASK":
-            raise RuntimeError("cannot run other tasks or managers from within a task")
-        caller_type_ctx.set("TASK")
-        return await super().run_async(*args, run_id=run_id)
+    pass
 
 
 class Manager(Runnable):
-    async def run_async(self, *args, run_id=None):
-        caller_type_ctx.set("MANAGER")
-        return await super().run_async(*args, run_id=run_id)
+    pass
 
 
 class RunnableStore(dict):
@@ -185,6 +155,8 @@ class RunnableStore(dict):
         # translate inputs to Runnables
         for runnable in self._runnables.values():
             inputs = []
+            if runnable.inputs is None:
+                runnable.inputs = []
             for input in runnable.inputs:
                 if isinstance(input, str):
                     inputs.append(self._runnables[input])

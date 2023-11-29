@@ -4,7 +4,7 @@ import uuid
 from abc import ABC, abstractmethod
 from typing import Any
 
-from microflow.exec_result import ExecutionStatus, Run
+from microflow.run import ExecutionStatus, Run
 
 
 class EventStoreAdapter(ABC):
