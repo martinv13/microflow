@@ -27,7 +27,4 @@ class EventLoopStore:
             self._shutdown_future.set_result(True)
 
 
-caller_type_ctx = contextvars.ContextVar("caller_type", default=None)
-caller_name_ctx = contextvars.ContextVar("caller_name", default=None)
-run_id_ctx = contextvars.ContextVar("run_id", default=None)
-run_group_ctx = contextvars.ContextVar("run_group", default=None)
+run_ctx = contextvars.ContextVar("run", default=None)

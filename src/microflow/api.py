@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 import pkg_resources
 
-from microflow.exec_result import Run
+from microflow.run import Run
 
 if typing.TYPE_CHECKING:
     from microflow.flow import Flow

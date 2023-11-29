@@ -2,4 +2,9 @@ venv
 chunks
 .idea
 __pycache__
+
 src/gui-build
+
+
+src/microflow.egg-info
+
